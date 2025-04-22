@@ -1,0 +1,57 @@
+name: Build Flutter Apps
+
+on:
+  push:
+    branches:
+      - master  # Adjust to 'master' if your repo uses it
+
+jobs:
+  build:
+    name: Build APK and IPA
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'adopt'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.2'
+          channel: 'stable'
+          cache: true
+
+      - name: Install pub dependencies
+        run: flutter pub get
+
+      - name: Build Android APK
+        run: flutter build apk --release
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+
+      - name: Build iOS IPA
+        run: |
+          flutter build ios --release --no-codesign
+          cd build/ios/iphoneos
+          mkdir -p Payload
+          mv Runner.app Payload/
+          zip -r app.ipa Payload
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 7
+
+      - name: Upload iOS IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: build/ios/iphoneos/app.ipa
+          retention-days: 7
