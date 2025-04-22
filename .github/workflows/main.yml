@@ -2,7 +2,7 @@ name: Build Flutter Apps
 on:
   push:
     branches:
-      - master  # Adjust to 'master' if your repo uses it
+      - main  # Adjust to 'master' if your repo uses it
 
 jobs:
   build:
