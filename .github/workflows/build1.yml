@@ -1,0 +1,31 @@
+name: Build IPA
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '2.7'
+
+      - name: Install Fastlane
+        run: gem install fastlane
+
+      - name: Build with Fastlane
+        run: fastlane build
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v2
+        with:
+          name: app.ipa
+          path: path/to/your-app.ipa
