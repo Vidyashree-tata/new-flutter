@@ -1,20 +1,27 @@
-# Xcode
-# Build, test, and archive an Xcode workspace on macOS.
-# Add steps that install certificates, test, sign, and distribute an app, save build artifacts, and more:
-# https://docs.microsoft.com/azure/devops/pipelines/languages/xcode
-
 trigger:
-- main
+- main  # or your branch name
 
 pool:
-  vmImage: 'macos-latest'
+  name: 'Default'  # Replace with your self-hosted agent pool name
+
+variables:
+  buildDir: '$(Build.SourcesDirectory)/app/build/outputs/apk/release'
 
 steps:
-- task: Xcode@5
+- task: Gradle@2
   inputs:
-    actions: 'build'
-    scheme: ''
-    sdk: 'iphoneos'
-    configuration: 'Release'
-    xcWorkspacePath: '**/*.xcodeproj/project.xcworkspace'
-    xcodeVersion: 'default' # Options: 11, 12, 13, 14, 15, default, specifyPath
+    workingDirectory: ''
+    gradleWrapperFile: 'gradlew'
+    gradleOptions: '-Xmx3072m'
+    tasks: 'assembleRelease'
+
+- task: CopyFiles@2
+  inputs:
+    contents: '**/*.apk'
+    targetFolder: '$(Build.ArtifactStagingDirectory)'
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'apk'
+    publishLocation: 'Container'
