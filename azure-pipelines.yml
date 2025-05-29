@@ -1,27 +1,39 @@
 trigger:
-- main  # or your branch name
+  - main  # or your branch name
 
 pool:
-  name: 'Default'  # Replace with your self-hosted agent pool name
+  vmImage: 'macos-latest'  # Required for iOS builds
 
 variables:
-  buildDir: '$(Build.SourcesDirectory)/app/build/outputs/apk/release'
+  buildDirAndroid: 'build/app/outputs/flutter-apk'
+  buildDirIOS: 'build/ios/iphoneos'
 
 steps:
-- task: Gradle@2
+- task: UseFlutterVersion@0
   inputs:
-    workingDirectory: ''
-    gradleWrapperFile: 'gradlew'
-    gradleOptions: '-Xmx3072m'
-    tasks: 'assembleRelease'
+    version: '3.19.0'  # Replace with your Flutter version
+
+- script: flutter pub get
+  displayName: 'Install dependencies'
+
+- script: flutter build apk --release
+  displayName: 'Build APK'
+
+- script: flutter build ios --release --no-codesign
+  displayName: 'Build IPA (no code signing)'
 
 - task: CopyFiles@2
   inputs:
-    contents: '**/*.apk'
-    targetFolder: '$(Build.ArtifactStagingDirectory)'
+    contents: '$(buildDirAndroid)/*.apk'
+    targetFolder: '$(Build.ArtifactStagingDirectory)/apk'
+
+- task: CopyFiles@2
+  inputs:
+    contents: '$(buildDirIOS)/*.app'
+    targetFolder: '$(Build.ArtifactStagingDirectory)/ios'
 
 - task: PublishBuildArtifacts@1
   inputs:
     PathtoPublish: '$(Build.ArtifactStagingDirectory)'
-    ArtifactName: 'apk'
+    ArtifactName: 'flutter-build'
     publishLocation: 'Container'
