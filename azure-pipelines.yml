@@ -1,7 +1,42 @@
+trigger:
+  - main
+
+pool:
+  vmImage: 'macos-latest'
+
+variables:
+  flutterVersion: 'stable'
+  buildDirAndroid: 'build/app/outputs/flutter-apk'
+
+steps:
+- task: Cache@2
+  inputs:
+    key: 'flutter | "$(Agent.OS)" | flutter'
+    path: 'flutter'
+  displayName: 'Cache Flutter SDK'
+
 - script: |
-    flutter --version
+    git clone https://github.com/flutter/flutter.git -b ${{ variables.flutterVersion }}
+    echo "##vso[task.setvariable variable=PATH]$PATH:`pwd`/flutter/bin"
+    flutter doctor
+  displayName: 'Install Flutter SDK'
+
+- script: |
     flutter pub get
     flutter clean
     flutter build apk --debug
-    echo "Debug APK generated at: build/app/outputs/flutter-apk/app-debug.apk"
+    echo "Debug APK generated at: $(buildDirAndroid)/app-debug.apk"
   displayName: 'Build Debug APK'
+
+- task: CopyFiles@2
+  inputs:
+    contents: '$(buildDirAndroid)/app-debug.apk'
+    targetFolder: '$(Build.ArtifactStagingDirectory)/apk'
+  displayName: 'Copy Debug APK to artifacts'
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)/apk'
+    ArtifactName: 'debug-apk'
+    publishLocation: 'Container'
+  displayName: 'Publish Debug APK'
