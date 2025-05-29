@@ -1,53 +1,7 @@
-trigger:
-  - main  # or your branch name
-
-pool:
-  vmImage: 'macos-latest'  # Required for iOS builds
-
-variables:
-  flutterVersion: 'stable'
-  buildDirAndroid: 'build/app/outputs/flutter-apk'
-  buildDirIOS: 'build/ios/iphoneos'
-
-steps:
-- task: Cache@2
-  inputs:
-    key: 'flutter | "$(Agent.OS)" | flutter'
-    path: 'flutter'
-  displayName: 'Cache Flutter SDK'
-
 - script: |
-    git clone https://github.com/flutter/flutter.git -b ${{ variables.flutterVersion }}
-    echo "##vso[task.setvariable variable=PATH]$PATH:`pwd`/flutter/bin"
-    flutter doctor
-  displayName: 'Install Flutter SDK'
-
-- script: flutter pub get
-  displayName: 'Install dependencies'
-
-- script: flutter build apk --release
-  displayName: 'Build APK'
-
-- script: flutter build ios --release --no-codesign
-  displayName: 'Build iOS (no code signing)'
-
-- script: |
-    mkdir -p Payload
-    cp -r $(buildDirIOS)/*.app Payload/
-    /usr/bin/zip -r app.ipa Payload
-    mkdir -p $(Build.ArtifactStagingDirectory)/ios
-    mv app.ipa $(Build.ArtifactStagingDirectory)/ios/
-  displayName: 'Package .app into .ipa'
-
-- task: CopyFiles@2
-  inputs:
-    contents: '$(buildDirAndroid)/*.apk'
-    targetFolder: '$(Build.ArtifactStagingDirectory)/apk'
-  displayName: 'Copy APK to artifacts'
-
-- task: PublishBuildArtifacts@1
-  inputs:
-    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
-    ArtifactName: 'flutter-build'
-    publishLocation: 'Container'
-  displayName: 'Publish artifacts'
+    flutter --version
+    flutter pub get
+    flutter clean
+    flutter build apk --debug
+    echo "Debug APK generated at: build/app/outputs/flutter-apk/app-debug.apk"
+  displayName: 'Build Debug APK'
