@@ -5,13 +5,16 @@ pool:
   vmImage: 'macos-latest'  # Required for iOS builds
 
 variables:
+  flutterVersion: 'stable'
   buildDirAndroid: 'build/app/outputs/flutter-apk'
   buildDirIOS: 'build/ios/iphoneos'
 
 steps:
-- task: UseFlutterVersion@0
-  inputs:
-    version: '3.19.0'  # Replace with your Flutter version
+- script: |
+    git clone https://github.com/flutter/flutter.git -b ${{ variables.flutterVersion }}
+    echo "##vso[task.setvariable variable=PATH]$PATH:`pwd`/flutter/bin"
+    flutter doctor
+  displayName: 'Install Flutter SDK'
 
 - script: flutter pub get
   displayName: 'Install dependencies'
@@ -20,20 +23,23 @@ steps:
   displayName: 'Build APK'
 
 - script: flutter build ios --release --no-codesign
-  displayName: 'Build IPA (no code signing)'
+  displayName: 'Build iOS (no code signing)'
 
 - task: CopyFiles@2
   inputs:
     contents: '$(buildDirAndroid)/*.apk'
     targetFolder: '$(Build.ArtifactStagingDirectory)/apk'
+  displayName: 'Copy APK to artifacts'
 
 - task: CopyFiles@2
   inputs:
     contents: '$(buildDirIOS)/*.app'
     targetFolder: '$(Build.ArtifactStagingDirectory)/ios'
+  displayName: 'Copy iOS app to artifacts'
 
 - task: PublishBuildArtifacts@1
   inputs:
     PathtoPublish: '$(Build.ArtifactStagingDirectory)'
     ArtifactName: 'flutter-build'
     publishLocation: 'Container'
+  displayName: 'Publish artifacts'
