@@ -1,0 +1,44 @@
+trigger:
+  branches:
+    include:
+      - main  # or your default branch
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  flutterVersion: '3.19.0'  # specify your Flutter version
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.x'
+      addToPath: true
+
+  - script: |
+      git clone https://github.com/flutter/flutter.git -b stable
+      export PATH="$PATH:`pwd`/flutter/bin"
+      flutter doctor
+    displayName: 'Install Flutter SDK'
+
+  - script: |
+      export PATH="$PATH:`pwd`/flutter/bin"
+      flutter pub get
+    displayName: 'Install dependencies'
+
+  - script: |
+      export PATH="$PATH:`pwd`/flutter/bin"
+      yes | flutter doctor --android-licenses
+    displayName: 'Accept Android Licenses'
+
+  - script: |
+      export PATH="$PATH:`pwd`/flutter/bin"
+      flutter build apk --release
+    displayName: 'Build APK'
+
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: 'build/app/outputs/flutter-apk/app-release.apk'
+      ArtifactName: 'apk'
+      publishLocation: 'Container'
+    displayName: 'Publish APK Artifact'
