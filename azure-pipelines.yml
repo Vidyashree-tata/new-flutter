@@ -1,42 +1,34 @@
 trigger:
-  - main
+  branches:
+    include:
+      - main  # or your default branch
 
 pool:
   vmImage: 'ubuntu-latest'
 
 variables:
-  flutterVersion: 'stable'
-  buildDirAndroid: 'build/app/outputs/flutter-apk'
+  sdkVersion: '30'
+  buildToolsVersion: '30.0.3'
 
 steps:
-- task: Cache@2
+- task: UseJava@1
   inputs:
-    key: 'flutter | "$(Agent.OS)" | flutter'
-    path: 'flutter'
-  displayName: 'Cache Flutter SDK'
+    versionSpec: '11'
+    jdkArchitecture: 'x64'
+
+- task: AndroidToolInstaller@1
+  inputs:
+    version: 'latest'
 
 - script: |
-    git clone https://github.com/flutter/flutter.git -b ${{ variables.flutterVersion }}
-    echo "##vso[task.setvariable variable=PATH]$PATH:`pwd`/flutter/bin"
-    flutter doctor
-  displayName: 'Install Flutter SDK'
+    echo "y" | sdkmanager "platforms;android-$(sdkVersion)" "build-tools;$(buildToolsVersion)"
+  displayName: 'Install Android SDK components'
 
-- script: |
-    flutter pub get
-    flutter clean
-    flutter build apk --debug
-    echo "Debug APK generated at: $(buildDirAndroid)/app-debug.apk"
-  displayName: 'Build Debug APK'
-
-- task: CopyFiles@2
-  inputs:
-    contents: '$(buildDirAndroid)/app-debug.apk'
-    targetFolder: '$(Build.ArtifactStagingDirectory)/apk'
-  displayName: 'Copy Debug APK to artifacts'
+- script: ./gradlew assembleDebug
+  displayName: 'Build APK'
 
 - task: PublishBuildArtifacts@1
   inputs:
-    PathtoPublish: '$(Build.ArtifactStagingDirectory)/apk'
-    ArtifactName: 'debug-apk'
+    PathtoPublish: 'app/build/outputs/apk/debug'
+    ArtifactName: 'apk'
     publishLocation: 'Container'
-  displayName: 'Publish Debug APK'
