@@ -11,17 +11,18 @@ variables:
   buildToolsVersion: '30.0.3'
 
 steps:
-- task: UseJava@1
+- task: JavaToolInstaller@1
   inputs:
-    versionSpec: '11'
-    jdkArchitecture: 'x64'
-
-- task: AndroidToolInstaller@1
-  inputs:
-    version: 'latest'
+    versionSpec: '11' # Specify the JDK version you need
+    jdkArchitectureOption: 'x64' # Choose the architecture (x64 or x86)
+    jdkSourceOption: 'PreInstalled' # Use pre-installed JDK on Microsoft-hosted agents
 
 - script: |
-    echo "y" | sdkmanager "platforms;android-$(sdkVersion)" "build-tools;$(buildToolsVersion)"
+    sudo apt-get update
+    sudo apt-get install -y wget unzip
+    wget https://dl.google.com/android/repository/commandlinetools-linux-7302050_latest.zip
+    unzip commandlinetools-linux-7302050_latest.zip -d $HOME/android-sdk
+    yes | $HOME/android-sdk/cmdline-tools/bin/sdkmanager --sdk_root=$HOME/android-sdk "platforms;android-$(sdkVersion)" "build-tools;$(buildToolsVersion)"
   displayName: 'Install Android SDK components'
 
 - script: ./gradlew assembleDebug
