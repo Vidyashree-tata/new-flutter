@@ -1,35 +1,9 @@
 trigger:
-  branches:
-    include:
-      - main  # or your default branch
+- main
 
 pool:
   vmImage: 'ubuntu-latest'
 
-variables:
-  sdkVersion: '30'
-  buildToolsVersion: '30.0.3'
-
 steps:
-- task: JavaToolInstaller@1
-  inputs:
-    versionSpec: '11' # Specify the JDK version you need
-    jdkArchitectureOption: 'x64' # Choose the architecture (x64 or x86)
-    jdkSourceOption: 'PreInstalled' # Use pre-installed JDK on Microsoft-hosted agents
-
-- script: |
-    sudo apt-get update
-    sudo apt-get install -y wget unzip
-    wget https://dl.google.com/android/repository/commandlinetools-linux-7302050_latest.zip
-    unzip commandlinetools-linux-7302050_latest.zip -d $HOME/android-sdk
-    yes | $HOME/android-sdk/cmdline-tools/bin/sdkmanager --sdk_root=$HOME/android-sdk "platforms;android-$(sdkVersion)" "build-tools;$(buildToolsVersion)"
-  displayName: 'Install Android SDK components'
-
-- script: ./gradlew assembleDebug
-  displayName: 'Build APK'
-
-- task: PublishBuildArtifacts@1
-  inputs:
-    PathtoPublish: 'app/build/outputs/apk/debug'
-    ArtifactName: 'apk'
-    publishLocation: 'Container'
+- script: echo "Hello, world!"
+  displayName: 'Run a one-line script'
