@@ -1,35 +1,33 @@
 trigger:
-  branches:
-    include:
-      - main  # Change this to your branch name if needed
+- main
 
 pool:
-  name: 'Azure Pipelines'
   vmImage: 'ubuntu-latest'
 
 variables:
-  buildDir: 'app/build/outputs/apk/release'
+  flutterVersion: '3.19.0'  # Change to your desired Flutter version
 
 steps:
-  - script: |
-      echo "Making Gradle wrapper executable"
-      chmod +x ./gradlew
-    displayName: 'Make gradlew executable'
+- task: UsePythonVersion@0
+  inputs:
+    versionSpec: '3.x'
 
-  - script: |
-      echo "Building APK"
-      ./gradlew assembleRelease
-    displayName: 'Build APK with Gradle'
+- script: |
+    git clone https://github.com/flutter/flutter.git -b stable
+    echo "##vso[task.prependpath]$(Build.SourcesDirectory)/flutter/bin"
+    flutter doctor
+  displayName: 'Install Flutter'
 
-  - task: CopyFiles@2
-    inputs:
-      contents: '**/*.apk'
-      targetFolder: '$(Build.ArtifactStagingDirectory)'
-    displayName: 'Copy APK files'
+- script: |
+    flutter pub get
+  displayName: 'Install dependencies'
 
-  - task: PublishBuildArtifacts@1
-    inputs:
-      PathtoPublish: '$(Build.ArtifactStagingDirectory)'
-      ArtifactName: 'apk'
-      publishLocation: 'Container'
-    displayName: 'Publish APK Artifact'
+- script: |
+    flutter build apk --release
+  displayName: 'Build APK'
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: 'build/app/outputs/flutter-apk/app-release.apk'
+    ArtifactName: 'apk'
+    publishLocation: 'Container'
