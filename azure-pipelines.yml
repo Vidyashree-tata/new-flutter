@@ -1,9 +1,28 @@
 trigger:
-- main
+  branches:
+    include:
+      - main  # or your desired branch
 
 pool:
+  name: 'Default'
   vmImage: 'ubuntu-latest'
 
+variables:
+  buildDir: 'app/build/outputs/apk/release'
+
 steps:
-- script: echo "Hello, world!"
-  displayName: 'Run a one-line script'
+  - script: |
+      chmod +x ./gradlew
+      ./gradlew assembleRelease
+    displayName: 'Build APK with Gradle'
+
+  - task: CopyFiles@2
+    inputs:
+      contents: '**/*.apk'
+      targetFolder: '$(Build.ArtifactStagingDirectory)'
+
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+      ArtifactName: 'apk'
+      publishLocation: 'Container'
