@@ -1,10 +1,10 @@
 trigger:
   branches:
     include:
-      - main  # or your desired branch
+      - main  # Change this to your branch name if needed
 
 pool:
-  name: 'Default'
+  name: 'Azure Pipelines'
   vmImage: 'ubuntu-latest'
 
 variables:
@@ -12,7 +12,12 @@ variables:
 
 steps:
   - script: |
+      echo "Making Gradle wrapper executable"
       chmod +x ./gradlew
+    displayName: 'Make gradlew executable'
+
+  - script: |
+      echo "Building APK"
       ./gradlew assembleRelease
     displayName: 'Build APK with Gradle'
 
@@ -20,9 +25,11 @@ steps:
     inputs:
       contents: '**/*.apk'
       targetFolder: '$(Build.ArtifactStagingDirectory)'
+    displayName: 'Copy APK files'
 
   - task: PublishBuildArtifacts@1
     inputs:
       PathtoPublish: '$(Build.ArtifactStagingDirectory)'
       ArtifactName: 'apk'
       publishLocation: 'Container'
+    displayName: 'Publish APK Artifact'
