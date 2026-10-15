@@ -1,0 +1,13 @@
+FROM eclipse-temurin:21-jre
+
+WORKDIR /app
+
+COPY --chown=10001:10001 app.jar /app/app.jar
+
+ENV JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"
+
+USER 10001:10001
+
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]

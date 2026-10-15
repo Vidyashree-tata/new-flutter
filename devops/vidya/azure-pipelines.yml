@@ -1,0 +1,341 @@
+# Copy this directory into each Java service repository and select this YAML in Azure Pipelines.
+trigger:
+  - jiobp_develop
+
+pool:
+  name: on-prem-pool
+
+parameters:
+  - name: targetEnv
+    displayName: Environment
+    type: string
+    default: dev
+    values: [dev, test, release]
+  - name: serviceName
+    type: string
+    default: bcp-management
+  - name: serviceVariableGroup
+    type: string
+    default: BCPManagementVariables
+  - name: chartPrefix
+    type: string
+    default: bcpmanagement
+  - name: deploymentRepository
+    type: string
+    default: transconnect/BCPManagement
+  - name: buildSharedLibraries
+    type: boolean
+    default: true
+  - name: jarPattern
+    displayName: Single executable JAR path relative to service root
+    type: string
+    default: target/*.jar
+  - name: deployToCluster
+    displayName: Deploy published chart to Kubernetes
+    type: boolean
+    default: false
+  - name: kubernetesServiceConnection
+    type: string
+    default: configure-kubernetes-connection
+  - name: namespace
+    type: string
+    default: default
+
+resources:
+  repositories:
+    - repository: securityLibrary
+      type: git
+      name: transconnect/SecurityLibrary
+      ref: refs/heads/jiobp_develop
+    - repository: notificationUtility
+      type: git
+      name: transconnect/NotificationUtility
+      ref: refs/heads/jiobp_develop
+    - repository: deployment
+      type: git
+      name: ${{ parameters.deploymentRepository }}
+      ref: refs/heads/deployment
+
+variables:
+  - group: nexusRegistry
+  - group: nexusHelmRegistry
+  - group: SonarQube_Test
+  - group: NexusCredentials
+  - group: ${{ parameters.serviceVariableGroup }}
+  - name: nexusRepository
+    value: jiobp-docker
+  - name: imageName
+    value: ${{ parameters.serviceName }}-${{ parameters.targetEnv }}
+  - name: imageTag
+    value: $(Build.BuildId)
+  - name: chartDirectory
+    value: ${{ parameters.chartPrefix }}-${{ parameters.targetEnv }}-helm
+  - name: nexusHelmRepository
+    value: ${{ parameters.serviceName }}-${{ parameters.targetEnv }}-helm
+  - name: helmChartVersion
+    value: 1.0.$(Build.BuildId)
+  - name: imageRepository
+    value: $(nexusRegistry)/$(nexusRepository)/$(imageName)
+
+stages:
+  - stage: TestAndAnalyze
+    displayName: Test, build and enforce SonarQube quality gate
+    jobs:
+      - job: MavenBuild
+        workspace:
+          clean: all
+        steps:
+          - checkout: self
+            clean: true
+            persistCredentials: false
+            path: s/service
+          - ${{ if eq(parameters.buildSharedLibraries, true) }}:
+              - checkout: securityLibrary
+                clean: true
+                persistCredentials: false
+                path: s/securitylibrary
+              - checkout: notificationUtility
+                clean: true
+                persistCredentials: false
+                path: s/notificationutility
+          - bash: |
+              set -euo pipefail
+              java -version
+              mvn --version
+              for tool in docker trivy helm yq; do
+                command -v "$tool" >/dev/null
+              done
+              yq --version | grep -E 'version v?4\.'
+            displayName: Check required agent tools
+          - ${{ if eq(parameters.buildSharedLibraries, true) }}:
+              - bash: |
+                  set -euo pipefail
+                  for library in securitylibrary notificationutility; do
+                    mvn --batch-mode --no-transfer-progress \
+                      -Dmaven.repo.local="$PIPELINE_WORKSPACE/m2" \
+                      -f "$PIPELINE_WORKSPACE/s/$library/pom.xml" clean install -DskipTests
+                  done
+                displayName: Build shared libraries using Azure repository checkout
+          - task: Maven@3
+            displayName: Build service and run tests with JaCoCo
+            inputs:
+              mavenPomFile: $(Pipeline.Workspace)/s/service/pom.xml
+              goals: clean verify jacoco:report
+              options: --batch-mode --no-transfer-progress -Dmaven.repo.local=$(Pipeline.Workspace)/m2
+              javaHomeOption: Path
+              jdkDirectory: $(JAVA_HOME)
+              publishJUnitResults: true
+              testResultsFiles: $(Pipeline.Workspace)/s/service/**/surefire-reports/TEST-*.xml
+              sonarQubeRunAnalysis: false
+          - task: PublishCodeCoverageResults@2
+            displayName: Publish JaCoCo coverage
+            condition: succeededOrFailed()
+            inputs:
+              summaryFileLocation: $(Pipeline.Workspace)/s/service/**/target/site/jacoco/jacoco.xml
+              failIfCoverageEmpty: true
+          - task: SonarQubePrepare@7
+            displayName: Prepare SonarQube analysis
+            inputs:
+              SonarQube: sonarqube
+              scannerMode: other
+              extraProperties: |
+                sonar.projectKey=$(SONAR_PROJECT_KEY)
+                sonar.coverage.jacoco.xmlReportPaths=$(Pipeline.Workspace)/s/service/target/site/jacoco/jacoco.xml
+                sonar.qualitygate.wait=true
+                sonar.qualitygate.timeout=300
+          - task: Maven@3
+            displayName: Analyze this build and wait for its quality gate
+            inputs:
+              mavenPomFile: $(Pipeline.Workspace)/s/service/pom.xml
+              goals: validate
+              options: --batch-mode --no-transfer-progress -Dmaven.repo.local=$(Pipeline.Workspace)/m2
+              javaHomeOption: Path
+              jdkDirectory: $(JAVA_HOME)
+              publishJUnitResults: false
+              sonarQubeRunAnalysis: true
+          - task: SonarQubePublish@7
+            inputs:
+              pollingTimeoutSec: '300'
+          - bash: |
+              set -euo pipefail
+              python3 - <<'PY'
+              import glob
+              import os
+              import shutil
+              import zipfile
+              from pathlib import Path
+
+              root = Path(os.environ["SERVICE_ROOT"]).resolve()
+              jars = [Path(p).resolve() for p in glob.glob(str(root / os.environ["JAR_PATTERN"]))]
+              if len(jars) != 1 or not jars[0].is_file() or not jars[0].is_relative_to(root):
+                  raise SystemExit("jarPattern must select exactly one service JAR; configure it explicitly.")
+              with zipfile.ZipFile(jars[0]) as jar:
+                  manifest = jar.read("META-INF/MANIFEST.MF").decode("utf-8")
+                  if not any(line.startswith("Main-Class: ") for line in manifest.splitlines()):
+                      raise SystemExit("Selected JAR is not executable: missing Main-Class.")
+              output = Path(os.environ["OUTPUT"])
+              output.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(jars[0], output / "app.jar")
+              shutil.copy2(root / "devops/vidya/Dockerfile", output / "Dockerfile")
+              PY
+            displayName: Stage only the tested executable JAR and runtime Dockerfile
+            env:
+              SERVICE_ROOT: $(Pipeline.Workspace)/s/service
+              JAR_PATTERN: ${{ parameters.jarPattern }}
+              OUTPUT: $(Build.ArtifactStagingDirectory)/container
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: $(Build.ArtifactStagingDirectory)/container
+              artifact: container
+
+  - stage: Build
+    displayName: Build, scan and push tested image
+    dependsOn: TestAndAnalyze
+    condition: succeeded()
+    jobs:
+      - job: DockerizeAndPush
+        workspace:
+          clean: all
+        steps:
+          - checkout: none
+          - task: DownloadPipelineArtifact@2
+            inputs:
+              artifact: container
+              path: $(Pipeline.Workspace)/container
+          - bash: |
+              set -euo pipefail
+              docker build --pull --tag "$IMAGE_REPOSITORY:$IMAGE_TAG" \
+                --file "$PIPELINE_WORKSPACE/container/Dockerfile" "$PIPELINE_WORKSPACE/container"
+            displayName: Build credential-free runtime image
+            env:
+              IMAGE_REPOSITORY: $(imageRepository)
+              IMAGE_TAG: $(imageTag)
+          - bash: |
+              set -euo pipefail
+              trivy image --severity HIGH,CRITICAL --exit-code 1 --format json \
+                --output "$PIPELINE_WORKSPACE/trivy-report.json" "$IMAGE_REPOSITORY:$IMAGE_TAG"
+            displayName: Block publication on HIGH or CRITICAL vulnerabilities
+            env:
+              IMAGE_REPOSITORY: $(imageRepository)
+              IMAGE_TAG: $(imageTag)
+          - task: PublishPipelineArtifact@1
+            displayName: Publish scan report even when vulnerabilities are found
+            condition: succeededOrFailed()
+            inputs:
+              targetPath: $(Pipeline.Workspace)/trivy-report.json
+              artifact: trivy-report
+          - task: Docker@2
+            displayName: Push immutable build tag to Nexus
+            inputs:
+              command: push
+              containerRegistry: nexus-docker-registry
+              repository: $(nexusRepository)/$(imageName)
+              tags: $(imageTag)
+          - task: Docker@2
+            displayName: Remove registry login from the agent
+            condition: always()
+            inputs:
+              command: logout
+              containerRegistry: nexus-docker-registry
+
+  - stage: HelmPackage
+    displayName: Package and publish versioned Helm chart
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - job: PackageAndUpload
+        workspace:
+          clean: all
+        steps:
+          - checkout: deployment
+            clean: true
+            persistCredentials: false
+            path: s/deployment
+          - bash: |
+              set -euo pipefail
+              root="$(realpath "$PIPELINE_WORKSPACE/s/deployment")"
+              source="$(realpath "$root/$CHART_DIRECTORY")"
+              case "$source/" in
+                "$root/"*) ;;
+                *) echo "Chart directory must be inside deployment checkout"; exit 1 ;;
+              esac
+              mkdir -p "$OUTPUT"
+              cp -a "$source" "$OUTPUT/chart"
+              cd "$OUTPUT/chart"
+              yq -e '.image.repository != null and .image.tag != null' values.yaml >/dev/null
+              yq -i '.image.repository = strenv(IMAGE_REPOSITORY) |
+                     .image.tag = strenv(IMAGE_TAG)' values.yaml
+              yq -i '.version = strenv(CHART_VERSION) |
+                     .appVersion = strenv(IMAGE_TAG)' Chart.yaml
+              helm dependency build .
+              helm lint . --strict
+              helm template "$RELEASE_NAME" . >/dev/null
+              helm package . --destination "$OUTPUT"
+            displayName: Update image values, validate and package chart
+            env:
+              CHART_DIRECTORY: $(chartDirectory)
+              CHART_VERSION: $(helmChartVersion)
+              IMAGE_REPOSITORY: $(imageRepository)
+              IMAGE_TAG: $(imageTag)
+              RELEASE_NAME: $(imageName)
+              OUTPUT: $(Build.ArtifactStagingDirectory)/helm
+          - bash: |
+              set -euo pipefail
+              shopt -s nullglob
+              packages=("$OUTPUT"/*.tgz)
+              if [ "${#packages[@]}" -ne 1 ]; then
+                echo "Expected exactly one Helm package"; exit 1
+              fi
+              if [[ ! "$NEXUS_HOST" =~ ^[A-Za-z0-9.-]+(:[0-9]+)?$ ]] ||
+                 [[ ! "$HELM_REPOSITORY" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+                echo "Invalid Nexus host or Helm repository"; exit 1
+              fi
+              curl --fail --silent --show-error \
+                --user "$NEXUS_USERNAME:$NEXUS_PASSWORD" \
+                --upload-file "${packages[0]}" \
+                "https://$NEXUS_HOST/repository/$HELM_REPOSITORY/$(basename "${packages[0]}")"
+            displayName: Upload chart over verified HTTPS to Nexus Helm hosted repository
+            env:
+              OUTPUT: $(Build.ArtifactStagingDirectory)/helm
+              NEXUS_HOST: $(nexusHelmRegistry)
+              HELM_REPOSITORY: $(nexusHelmRepository)
+              NEXUS_USERNAME: $(NEXUS_USERNAME)
+              NEXUS_PASSWORD: $(NEXUS_PASSWORD)
+          - task: PublishPipelineArtifact@1
+            inputs:
+              targetPath: $(Build.ArtifactStagingDirectory)/helm
+              artifact: helm
+
+  - ${{ if eq(parameters.deployToCluster, true) }}:
+      - stage: Deploy
+        displayName: Deploy to Kubernetes
+        dependsOn: HelmPackage
+        condition: succeeded()
+        jobs:
+          - deployment: DeployService
+            environment: ${{ parameters.targetEnv }}
+            workspace:
+              clean: all
+            strategy:
+              runOnce:
+                deploy:
+                  steps:
+                    - checkout: none
+                    - download: none
+                    - task: DownloadPipelineArtifact@2
+                      inputs:
+                        artifact: helm
+                        path: $(Pipeline.Workspace)/helm
+                    - task: HelmDeploy@0
+                      displayName: Upgrade service and wait for rollout
+                      inputs:
+                        connectionType: Kubernetes Service Connection
+                        kubernetesServiceConnection: ${{ parameters.kubernetesServiceConnection }}
+                        namespace: ${{ parameters.namespace }}
+                        command: upgrade
+                        chartType: FilePath
+                        chartPath: $(Pipeline.Workspace)/helm/chart
+                        releaseName: $(imageName)
+                        install: true
+                        waitForExecution: true
+                        arguments: --atomic --timeout 5m
