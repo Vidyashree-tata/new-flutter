@@ -1,0 +1,129 @@
+# Azure Pipeline for DEV Environment - FuelTransactionManagement
+# Triggered on commits to develop branch or manually for DEV deployments
+
+trigger:
+  branches:
+    include:
+      - develop
+      - feature/*
+  paths:
+    exclude:
+      - README.md
+      - docs/*
+
+# Manual trigger option
+pr: none
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - name: flutterVersion
+    value: '3.19.0'
+  - name: environment
+    value: 'DEV'
+  - name: buildConfiguration
+    value: 'debug'  # Use debug build for DEV environment
+
+stages:
+  - stage: Build
+    displayName: 'Build Stage - DEV'
+    jobs:
+      - job: BuildFlutterApp
+        displayName: 'Build Flutter App for DEV'
+        steps:
+          - task: UsePythonVersion@0
+            displayName: 'Setup Python'
+            inputs:
+              versionSpec: '3.x'
+              addToPath: true
+
+          - script: |
+              git clone https://github.com/flutter/flutter.git -b stable --depth 1
+              echo "##vso[task.prependpath]$(Build.SourcesDirectory)/flutter/bin"
+            displayName: 'Install Flutter SDK'
+
+          - script: |
+              flutter doctor -v
+              flutter --version
+            displayName: 'Flutter Doctor Check'
+
+          - script: |
+              flutter pub get
+            displayName: 'Install Dependencies'
+
+          - script: |
+              flutter analyze
+            displayName: 'Run Flutter Analyze'
+
+          - script: |
+              flutter test
+            displayName: 'Run Unit Tests'
+            continueOnError: true
+
+          - script: |
+              flutter build apk --debug --flavor dev
+            displayName: 'Build DEV APK (Debug)'
+            continueOnError: true
+
+          - script: |
+              flutter build apk --debug
+            displayName: 'Build DEV APK (Fallback)'
+
+          - task: CopyFiles@2
+            displayName: 'Copy APK to Staging'
+            inputs:
+              SourceFolder: 'build/app/outputs/flutter-apk'
+              Contents: '**/*.apk'
+              TargetFolder: '$(Build.ArtifactStagingDirectory)/apk'
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish DEV APK Artifacts'
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)/apk'
+              ArtifactName: 'dev-apk-$(Build.BuildId)'
+              publishLocation: 'Container'
+
+  - stage: Deploy
+    displayName: 'Deploy to DEV'
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - deployment: DeployToDev
+        displayName: 'Deploy to DEV Environment'
+        environment: 'DEV'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - script: |
+                    echo "Deploying to DEV environment..."
+                    echo "Build ID: $(Build.BuildId)"
+                    echo "Environment: $(environment)"
+                  displayName: 'Deploy Information'
+
+                - task: DownloadBuildArtifacts@0
+                  displayName: 'Download DEV APK'
+                  inputs:
+                    buildType: 'current'
+                    downloadType: 'single'
+                    artifactName: 'dev-apk-$(Build.BuildId)'
+                    downloadPath: '$(System.ArtifactsDirectory)'
+
+                - script: |
+                    echo "APK ready for deployment to DEV environment"
+                    echo "Location: $(System.ArtifactsDirectory)"
+                    ls -lah $(System.ArtifactsDirectory)/dev-apk-$(Build.BuildId)/
+                  displayName: 'Verify Artifacts'
+
+                # Add your deployment steps here
+                # Example: Upload to App Center, Firebase, or internal testing platform
+                # - task: AppCenterDistribute@3
+                #   inputs:
+                #     serverEndpoint: 'AppCenter'
+                #     appSlug: 'your-org/your-app-dev'
+                #     appFile: '$(System.ArtifactsDirectory)/**/*.apk'
+                #     releaseNotesOption: 'input'
+                #     releaseNotesInput: 'DEV Build $(Build.BuildId)'
+                #     destinationType: 'groups'
+                #     distributionGroupId: 'dev-testers'
