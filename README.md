@@ -40,7 +40,10 @@ Docker build.
    This is a reusable pipeline entry point, not an installed AI agent or an
    automatic discovery system for services.
 2. Change the parameter defaults per service: `serviceName`, `chartPrefix`,
-   `serviceVariableGroup`, `deploymentRepository`, and `jarPattern`. The BCP
+   `serviceVariableGroup`, and `jarPattern`. Set the literal
+   `resources.repositories` entry named `deployment` to that service's
+   `<project>/<repository>` (Azure does not support parameters in repository
+   resource names). The BCP
    defaults retain the supplied image, chart-directory and Helm-repository
    naming for `dev`, `test` and `release`. Use an explicit JAR pattern if Maven
    produces multiple JARs; the selected JAR must have a `Main-Class` manifest.

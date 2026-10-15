@@ -20,9 +20,6 @@ parameters:
   - name: chartPrefix
     type: string
     default: bcpmanagement
-  - name: deploymentRepository
-    type: string
-    default: transconnect/BCPManagement
   - name: buildSharedLibraries
     type: boolean
     default: true
@@ -53,7 +50,7 @@ resources:
       ref: refs/heads/jiobp_develop
     - repository: deployment
       type: git
-      name: ${{ parameters.deploymentRepository }}
+      name: transconnect/BCPManagement
       ref: refs/heads/deployment
 
 variables:
